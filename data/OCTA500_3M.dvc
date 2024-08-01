@@ -1,0 +1,6 @@
+outs:
+- md5: 11a8379affaefc1073ebea8d100267ca.dir
+  size: 37397600
+  nfiles: 400
+  hash: md5
+  path: OCTA500_3M

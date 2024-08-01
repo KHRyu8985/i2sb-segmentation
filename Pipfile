@@ -33,9 +33,9 @@ onnxruntime = "*"
 monai = {extras = ["all"], version = "*"}
 jupyterlab = "*"
 ipykernel = "*"
+dvc = {extras = ["ssh"], version = "*"}
 
 [dev-packages]
 
 [requires]
 python_version = "3.10"
-python_full_version = "3.10.13"
