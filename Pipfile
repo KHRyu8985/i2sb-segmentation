@@ -34,6 +34,10 @@ monai = {extras = ["all"], version = "*"}
 jupyterlab = "*"
 ipykernel = "*"
 dvc = {extras = ["ssh"], version = "*"}
+accelerate = "*"
+diffusers = {extras = ["torch"], version = "*"}
+datasets = {extras = ["vision"], version = "*"}
+simpleitk = "*"
 
 [dev-packages]
 

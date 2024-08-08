@@ -1,4 +1,5 @@
 *.bmp
 *.png
 *.ipynb
+*.pyc
 !*.gitkeep
