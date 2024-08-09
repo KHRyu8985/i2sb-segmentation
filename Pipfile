@@ -9,7 +9,7 @@ verify_ssl = false
 name = "pytorch"
 
 [packages]
-easydict = "==1.7"
+easydict = "*"
 opencv-python = "*"
 cython = "*"
 scipy = "*"
@@ -28,6 +28,7 @@ gradio = "*"
 torch = {version="*", index = "pytorch"}
 torchvision = {version="*", index = "pytorch"}
 torchaudio = {version="*", index = "pytorch"}
+timm = "*"
 onnx = "*"
 onnxruntime = "*"
 monai = {extras = ["all"], version = "*"}

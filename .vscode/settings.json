@@ -1,0 +1,4 @@
+{
+    "win-ca.inject": "append",
+    "win-ca.save": false
+}
