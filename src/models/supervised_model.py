@@ -1,7 +1,6 @@
 import autorootcwd
 from .base_model import BaseModel
 import torch
-from tqdm import tqdm
 
 class SupervisedModel(BaseModel):
     """ Inheriting from BaseModel """
