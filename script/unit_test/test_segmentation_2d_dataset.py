@@ -6,6 +6,7 @@ import torch
 import matplotlib.pyplot as plt
 from src.metrics.vessel_2d import calculate_all_metrics
 import numpy as np
+import os
 
 # Test the dataset
 path_OCTA500_6M = "data/OCTA500_6M"
@@ -76,4 +77,7 @@ for i in range(4):
         ax.axis('off')
 
 plt.tight_layout()
-plt.show()
+
+os.makedirs("results/unit_test", exist_ok=True)
+plt.savefig("results/unit_test/dataset_test_results.png")
+plt.close(fig)

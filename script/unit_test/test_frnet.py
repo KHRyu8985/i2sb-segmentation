@@ -25,7 +25,7 @@ path_dict = {
 datasets_collapsed = DATASET_REGISTRY.get('VesselDataset')(path_dict, collapse=True)
 train_dataloader_collapsed = DataLoader(datasets_collapsed['train'], batch_size=4, shuffle=True)
 
-model = ARCH_REGISTRY.get('FRNet')(in_channels=1, out_channels=1)
+model = ARCH_REGISTRY.get('SegResNet')(in_channels=1, out_channels=1) # Could be FRNet, AttentionUNet, SegResNet
 batch = next(iter(train_dataloader_collapsed))
 images, labels, names = batch
 
@@ -65,6 +65,6 @@ for i in range(4):
 plt.tight_layout()
 
 # Save the plot in the results folder
-os.makedirs("results", exist_ok=True)
-plt.savefig("results/frnet_test_results.png")
+os.makedirs("results/unit_test", exist_ok=True)
+plt.savefig("results/unit_test/frnet_test_results.png")
 plt.close(fig)

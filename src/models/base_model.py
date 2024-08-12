@@ -1,12 +1,12 @@
 import autorootcwd
 import os
+import src.data
+import src.archs
+from src.utils.registry import ARCH_REGISTRY
+
 import time
 import torch
-from collections import OrderedDict
-from copy import deepcopy
-from torch.nn.parallel import DataParallel, DistributedDataParallel
-import src.metrics.brats21 as metrics
-from src.metrics.brats21 import brats_post_processing
+import src.metrics.vessel_2d as metrics
 from tqdm import tqdm
 
 import abc
@@ -14,31 +14,14 @@ import abc
 class BaseModel():
     """Base model class for training segmentation models """
     
-    def __init__(self, arch, device, aux_arch=None, mode='train'):
+    def __init__(self, arch='FRNet', device='cuda:0', mode='train'):
         assert mode in ['train', 'infer'], f"mode should be either 'train' or 'infer', but got {mode}"
-        
-        self.arch = arch
+        assert arch in ARCH_REGISTRY, f"Architecture {arch} not found in ARCH_REGISTRY! Available architectures: {ARCH_REGISTRY.keys()}"
+        assert mode in ['train', 'infer'], f"mode should be either 'train' or 'infer', but got {mode}"
+
+        self.arch = ARCH_REGISTRY.get(arch)(in_channels=1, out_channels=1) # Could be FRNet, AttentionUNet, SegResNet
+        self.mode = mode # train, infer
         self.device = device
-        self.mode = mode
-        
-        self.arch.to(self.device)
-        
-        if aux_arch:
-            # this is for additional networks such as scorer from meta-weight-net or etc.
-            self.aux_arch = aux_arch
-            self.aux_arch.to(self.device)
-
-    def make_dataloaders(self, train_loader=None, val_loader=None, test_loader=None):
-        if train_loader is not None:
-            self.train_loader = train_loader
-        if val_loader is not None:
-            self.val_loader = val_loader
-        if test_loader is not None:
-            self.test_loader = test_loader
-
-        if self.mode == 'train':
-            if not hasattr(self, 'train_loader') or not hasattr(self, 'val_loader'):
-                raise ValueError("For 'train' mode, both train_loader and val_loader must be provided.")
     
     @abc.abstractmethod
     def feed_data(self, batch):
@@ -67,13 +50,12 @@ class BaseModel():
         running_loss = 0.0
         running_metrics = {
             'dice': 0.0,
-            'dice_wt': 0.0,
-            'dice_tc': 0.0,
-            'dice_et': 0.0,
-            'hd95': 0.0,
-            'hd95_wt': 0.0,
-            'hd95_tc': 0.0,
-            'hd95_et': 0.0
+            'iou': 0.0,
+            'accuracy': 0.0,
+            'sensitivity': 0.0,
+            'specificity': 0.0,
+            'hausdorff_distance': 0.0,
+            'clDice': 0.0
         }
         with torch.no_grad():
             with tqdm(total=len(dataloader), desc=f"Validation Epoch {current_epoch}/{total_epoch}") as pbar:
@@ -85,7 +67,6 @@ class BaseModel():
                     running_loss += loss.item()
                     
                     pred_seg = pred_seg > 0.5  # Convert to boolean after inference
-                    pred_seg = brats_post_processing(pred_seg)                    
                     batch_metrics = self.compute_metrics(pred_seg, label)
                             
                     for key in running_metrics:
@@ -99,10 +80,10 @@ class BaseModel():
         
         print(
             f"Validation Epoch [{current_epoch}/{total_epoch}], Loss: {epoch_loss:.4f}, "
-            f"Dice: {avg_metrics['dice']:.4f}, Dice_WT: {avg_metrics['dice_wt']:.4f}, "
-            f"Dice_TC: {avg_metrics['dice_tc']:.4f}, Dice_ET: {avg_metrics['dice_et']:.4f}, "
-            f"HD95: {avg_metrics['hd95']:.4f}, HD95_WT: {avg_metrics['hd95_wt']:.4f}, "
-            f"HD95_TC: {avg_metrics['hd95_tc']:.4f}, HD95_ET: {avg_metrics['hd95_et']:.4f}"
+            f"Dice: {avg_metrics['dice']:.4f}, IoU: {avg_metrics['iou']:.4f}, "
+            f"Accuracy: {avg_metrics['accuracy']:.4f}, Sensitivity: {avg_metrics['sensitivity']:.4f}, "
+            f"Specificity: {avg_metrics['specificity']:.4f}, Hausdorff Distance: {avg_metrics['hausdorff_distance']:.4f}, "
+            f"clDice: {avg_metrics['clDice']:.4f}"
         )
         
 
@@ -131,38 +112,8 @@ class BaseModel():
         pass
     
     def compute_metrics(self, seg_map, label):
-        dice = metrics.dice(seg_map, label.bool())
-        hd95 = metrics.hd95(seg_map, label.bool())
-        
-        # case by case
-        dice_wt = dice[:,1]
-        dice_tc = dice[:,0]
-        dice_et = dice[:,2]
-        
-        hd95_wt = hd95[:,1]
-        hd95_tc = hd95[:,0]
-        hd95_et = hd95[:,2]
-        
-        dice = dice.mean()
-        dice_wt = dice_wt.mean()
-        dice_tc = dice_tc.mean()
-        dice_et = dice_et.mean()
-        
-        hd95 = hd95.mean()
-        hd95_wt = hd95_wt.mean()
-        hd95_tc = hd95_tc.mean()
-        hd95_et = hd95_et.mean()
-        
-        return {
-            'dice': dice,
-            'dice_wt': dice_wt,
-            'dice_tc': dice_tc,
-            'dice_et': dice_et,
-            'hd95': hd95,
-            'hd95_wt': hd95_wt,
-            'hd95_tc': hd95_tc,
-            'hd95_et': hd95_et
-        }
+        metrics_dict = metrics.calculate_all_metrics(seg_map, label)
+        return metrics_dict
 
 
     def get_optimizer(self, optim_type, params, lr, **kwargs):
@@ -183,6 +134,13 @@ class BaseModel():
         else:
             raise NotImplementedError(f'optimizer {optim_type} is not supported yet.')
         return optimizer
+
+    def prepare_training(self, optimizer, train_dataloader, lr_scheduler=None):
+        self.arch, optimizer, train_dataloader, lr_scheduler = self.accelerator.prepare(
+            self.arch, optimizer, train_dataloader, lr_scheduler
+        )
+        self.train_loader = train_dataloader
+        return optimizer, lr_scheduler
 
     def print_model_summary(self):
         print("Model Summary:")
