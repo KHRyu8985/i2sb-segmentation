@@ -105,10 +105,7 @@ class SegmentationDataset(Dataset):
         self.post_transforms = Compose(
             [
                 EnsureChannelFirstd(keys=["image", "label"]),
-                ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0),
-                SpatialPadd(
-                    keys=["image", "label"], spatial_size=(416, 416)
-                ),  # Resize to a fixed size
+                ScaleIntensityd(keys=["image", "label"], minv=0.0, maxv=1.0)
             ]
         )
 
@@ -118,7 +115,7 @@ class SegmentationDataset(Dataset):
                 RandFlipd(keys=["image", "label"], spatial_axis=0, prob=0.5),
                 RandFlipd(keys=["image", "label"], spatial_axis=1, prob=0.5),
                 RandRotate90d(keys=["image", "label"], prob=0.5, max_k=3),
-                CenterSpatialCropd(keys=["image", "label"], roi_size=(256, 256)),
+                CenterSpatialCropd(keys=["image", "label"], roi_size=(128, 128)),
             ]
         )
         self.mode = mode
@@ -138,16 +135,14 @@ class SegmentationDataset(Dataset):
         image = self.image_loader(image_path)
         label = self.image_loader(label_path)
 
-        data = {"image": image, "label": label}
+        data = {"image": image, "label": label, "name": name}
 
         data = self.post_transforms(data)
 
         if self.mode == "train":
             data = self.aug_transforms(data)
 
-        image, label = data["image"], data["label"]
-
-        return image, label, name  # Changed order here
+        return data
     
 
 if __name__ == "__main__":

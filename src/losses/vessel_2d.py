@@ -2,7 +2,7 @@ import autorootcwd
 import torch.nn as nn
 import torch
 from src.utils.registry import LOSS_REGISTRY
-from monai.losses import DiceCELoss, DiceLoss, DiceFocalLoss, SoftclDiceLoss
+from monai.losses import DiceCELoss, DiceLoss, DiceFocalLoss, SoftDiceclDiceLoss
 
 @LOSS_REGISTRY.register()
 class MonaiDiceCELoss(nn.Module):
@@ -35,7 +35,7 @@ class MonaiDiceFocalLoss(nn.Module):
         return self.loss_fn(*args, **kwargs)
 
 @LOSS_REGISTRY.register()
-class MonaiSoftclDiceLoss(nn.Module):
+class MonaiSoftDiceclDiceLoss(nn.Module):
     """
     Wrapper for MONAI's ClDiceLoss.
     
@@ -44,7 +44,7 @@ class MonaiSoftclDiceLoss(nn.Module):
     """
     def __init__(self, **kwargs):
         super().__init__()
-        self.loss_fn = SoftclDiceLoss(**kwargs)
+        self.loss_fn = SoftDiceclDiceLoss(iter_=1, alpha=0.1, **kwargs)
 
     def forward(self, *args, **kwargs):
         return self.loss_fn(*args, **kwargs)

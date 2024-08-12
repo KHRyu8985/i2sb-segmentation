@@ -184,15 +184,6 @@ def specificity_metric(predictions, targets, smooth=1e-5):
     actual_negatives = (1 - targets).sum()
     return (true_negatives + smooth) / (actual_negatives + smooth)
 
-def hausdorff_distance_metric(predictions, targets, spacing=[1, 1, 1]):
-    hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
-    pred_img = sitk.GetImageFromArray(predictions.squeeze().cpu().numpy().astype(np.uint8))
-    pred_img.SetSpacing(spacing)
-    target_img = sitk.GetImageFromArray(targets.squeeze().cpu().numpy().astype(np.uint8))
-    target_img.SetSpacing(spacing)
-    hausdorff_distance_filter.Execute(pred_img, target_img)
-    return hausdorff_distance_filter.GetHausdorffDistance()
-
 def cl_dice_metric(predictions, targets):
     def cl_score(v, s):
         return np.sum(v*s)/np.sum(s)
@@ -225,7 +216,6 @@ def calculate_all_metrics(predictions, targets, spacing=[1, 1, 1]):
     accuracy = accuracy_metric(predictions, targets)
     sensitivity = sensitivity_metric(predictions, targets)
     specificity = specificity_metric(predictions, targets)
-    hausdorff = hausdorff_distance_metric(predictions, targets, spacing)
     cl_dice = cl_dice_metric(predictions, targets)
     
     return {
@@ -234,6 +224,5 @@ def calculate_all_metrics(predictions, targets, spacing=[1, 1, 1]):
         "Accuracy": accuracy.item(),
         "Sensitivity": sensitivity.item(),
         "Specificity": specificity.item(),
-        "Hausdorff Distance": hausdorff,
         "clDice": cl_dice
     }

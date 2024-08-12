@@ -2,7 +2,7 @@ import autorootcwd
 import os
 import src.data
 import src.archs
-from src.utils.registry import ARCH_REGISTRY
+from src.utils.registry import ARCH_REGISTRY, LOSS_REGISTRY
 
 import time
 import torch
@@ -14,14 +14,16 @@ import abc
 class BaseModel():
     """Base model class for training segmentation models """
     
-    def __init__(self, arch='FRNet', device='cuda:0', mode='train'):
+    def __init__(self, arch='FRNet', criterion='DiceCELoss',device='cuda:0', mode='train'):
         assert mode in ['train', 'infer'], f"mode should be either 'train' or 'infer', but got {mode}"
         assert arch in ARCH_REGISTRY, f"Architecture {arch} not found in ARCH_REGISTRY! Available architectures: {ARCH_REGISTRY.keys()}"
         assert mode in ['train', 'infer'], f"mode should be either 'train' or 'infer', but got {mode}"
 
         self.arch = ARCH_REGISTRY.get(arch)(in_channels=1, out_channels=1) # Could be FRNet, AttentionUNet, SegResNet
+        self.criterion = LOSS_REGISTRY.get(criterion)() # Could be DiceCELoss, DiceLoss, CrossEntropyLoss
         self.mode = mode # train, infer
         self.device = device
+        self.first_verbose = True  # Add this flag to track the first verbose plotting
     
     @abc.abstractmethod
     def feed_data(self, batch):
@@ -42,26 +44,45 @@ class BaseModel():
         pass
     
     @abc.abstractmethod
-    def train_one_epoch(self, dataloader, current_epoch, total_epoch=0):
+    def valid_step(self, batch):
+        """Validation step.
+        Args:
+            batch : batch
+        """ 
         pass
 
-    def val_one_epoch(self, dataloader, current_epoch, total_epoch=0):
+    def train_one_epoch(self, dataloader, current_epoch, total_epoch=0):
+        self.arch.train()
+        running_loss = 0.0
+        weighted_loss = 0.0
+        progress_bar = tqdm(dataloader, desc=f"Epoch {current_epoch}/{total_epoch}")
+        for i, batch in enumerate(progress_bar):
+            loss = self.train_step(batch)
+            running_loss += loss
+            weighted_loss = 0.8 * weighted_loss + 0.2 * loss
+            progress_bar.set_postfix(loss=f"{weighted_loss:.3f}")
+        return running_loss / len(dataloader)
+
+    def val_one_epoch(self, dataloader, current_epoch, total_epoch=0, verbose=True, base_folder='results/unit_test'):
         self.arch.eval()
         running_loss = 0.0
         running_metrics = {
-            'dice': 0.0,
-            'iou': 0.0,
-            'accuracy': 0.0,
-            'sensitivity': 0.0,
-            'specificity': 0.0,
-            'hausdorff_distance': 0.0,
+            'Dice': 0.0,
+            'IoU': 0.0,
+            'Accuracy': 0.0,
+            'Sensitivity': 0.0,
+            'Specificity': 0.0,
             'clDice': 0.0
         }
+        best_dice = [-1, -1]
+        worst_dice = [float('inf'), float('inf')]
+        best_indices = [-1, -1]
+        worst_indices = [-1, -1]
         with torch.no_grad():
             with tqdm(total=len(dataloader), desc=f"Validation Epoch {current_epoch}/{total_epoch}") as pbar:
                 for batch_idx, batch in enumerate(dataloader):
-                    img, label = self.feed_data(batch)
-                    pred_seg = self.arch(img)
+                    
+                    pred_seg, label = self.valid_step(batch)
                     loss = self.criterion(pred_seg, label)
                     
                     running_loss += loss.item()
@@ -72,6 +93,25 @@ class BaseModel():
                     for key in running_metrics:
                         running_metrics[key] += batch_metrics[key]
                     
+                    dice_score = batch_metrics['Dice']
+                    if dice_score > best_dice[0]:
+                        best_dice[1] = best_dice[0]
+                        best_indices[1] = best_indices[0]
+                        best_dice[0] = dice_score
+                        best_indices[0] = batch_idx
+                    elif dice_score > best_dice[1]:
+                        best_dice[1] = dice_score
+                        best_indices[1] = batch_idx
+
+                    if dice_score < worst_dice[0]:
+                        worst_dice[1] = worst_dice[0]
+                        worst_indices[1] = worst_indices[0]
+                        worst_dice[0] = dice_score
+                        worst_indices[0] = batch_idx
+                    elif dice_score < worst_dice[1]:
+                        worst_dice[1] = dice_score
+                        worst_indices[1] = batch_idx
+                    
                     pbar.set_postfix(loss=loss.item())
                     pbar.update(1)
                     
@@ -80,27 +120,65 @@ class BaseModel():
         
         print(
             f"Validation Epoch [{current_epoch}/{total_epoch}], Loss: {epoch_loss:.4f}, "
-            f"Dice: {avg_metrics['dice']:.4f}, IoU: {avg_metrics['iou']:.4f}, "
-            f"Accuracy: {avg_metrics['accuracy']:.4f}, Sensitivity: {avg_metrics['sensitivity']:.4f}, "
-            f"Specificity: {avg_metrics['specificity']:.4f}, Hausdorff Distance: {avg_metrics['hausdorff_distance']:.4f}, "
-            f"clDice: {avg_metrics['clDice']:.4f}"
+            f"Dice: {avg_metrics['Dice']:.4f}, IoU: {avg_metrics['IoU']:.4f}, "
+            f"Accuracy: {avg_metrics['Accuracy']:.4f}, Sensitivity: {avg_metrics['Sensitivity']:.4f}, "
+            f"Specificity: {avg_metrics['Specificity']:.4f}, clDice: {avg_metrics['clDice']:.4f}"
         )
+        print(f"Best Indices: {best_indices}, Worst Indices: {worst_indices}")
         
+        if verbose:
+            import os
+            import matplotlib.pyplot as plt
 
-    def train_val_one_epoch(self, current_epoch=1, total_epoch=1):
-        start_time = time.time()
-        if total_epoch ==1 and current_epoch == 1:
-            print("Starting training and validation for one epoch.")
-    
-        self.train_one_epoch(self.train_loader, current_epoch, total_epoch)
-        self.val_one_epoch(self.val_loader, current_epoch, total_epoch)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-    
-        if total_epoch ==1 and current_epoch == 1:
-            print(f"Completed training and validation for one epoch. Time taken: {elapsed_time:.2f} seconds")
+            # Ensure the base folder exists
+            os.makedirs(base_folder, exist_ok=True)
 
-    
+            fig, axes = plt.subplots(2, 6, figsize=(24, 10))  # Adjusted the figure size for better width and height
+            best_batches = []
+            worst_batches = []
+            for idx, batch in enumerate(dataloader):
+                if idx in best_indices:
+                    best_batches.append(batch)
+                if idx in worst_indices:
+                    worst_batches.append(batch)
+            # Now you can use best_batches and worst_batches as needed
+            
+            for i in range(2):
+                best_batch = best_batches[i]
+                worst_batch = worst_batches[i]
+                
+                best_img, best_label = self.feed_data(best_batch)
+                best_pred = self.arch(best_img)
+                best_pred = torch.sigmoid(best_pred) > 0.5
+                
+                worst_img, worst_label = self.feed_data(worst_batch)
+                worst_pred = self.arch(worst_img)
+                worst_pred = torch.sigmoid(worst_pred) > 0.5
+
+                axes[0, i*3].imshow(best_img.cpu().squeeze(), cmap='gray')
+                axes[0, i*3].axis('off')
+                axes[0, i*3].set_title(f'Best Image {i+1} (Index: {best_indices[i]}) Dice: {best_dice[i]:.3f}')
+                axes[0, i*3+1].imshow(best_pred.cpu().squeeze(), cmap='gray')
+                axes[0, i*3+1].axis('off')
+                axes[0, i*3+1].set_title('Best Prediction')
+                axes[0, i*3+2].imshow(best_label.cpu().squeeze(), cmap='gray')
+                axes[0, i*3+2].axis('off')
+                axes[0, i*3+2].set_title('Best Ground Truth')
+
+                axes[1, i*3].imshow(worst_img.cpu().squeeze(), cmap='gray')
+                axes[1, i*3].axis('off')
+                axes[1, i*3].set_title(f'Worst Image {i+1} (Index: {worst_indices[i]}) Dice: {worst_dice[i]:.3f}')
+                axes[1, i*3+1].imshow(worst_pred.cpu().squeeze(), cmap='gray')
+                axes[1, i*3+1].axis('off')
+                axes[1, i*3+1].set_title('Worst Prediction')
+                axes[1, i*3+2].imshow(worst_label.cpu().squeeze(), cmap='gray')
+                axes[1, i*3+2].axis('off')
+                axes[1, i*3+2].set_title('Worst Ground Truth')
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(base_folder, f'validation_epoch_{current_epoch}.png'))
+            plt.close()
+            
     def get_current_visuals(self):
         pass
     

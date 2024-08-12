@@ -27,7 +27,7 @@ train_dataloader_collapsed = DataLoader(datasets_collapsed['train'], batch_size=
 
 model = ARCH_REGISTRY.get('SegResNet')(in_channels=1, out_channels=1) # Could be FRNet, AttentionUNet, SegResNet
 batch = next(iter(train_dataloader_collapsed))
-images, labels, names = batch
+images, labels, names = batch['image'], batch['label'], batch['name']
 
 # Run the model
 model.eval()

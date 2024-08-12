@@ -3,3 +3,4 @@
 *.ipynb
 *.pyc
 !*.gitkeep
+!results/unit_test/*

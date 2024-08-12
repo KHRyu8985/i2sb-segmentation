@@ -37,7 +37,8 @@ for name, dataset in datasets_uncollapsed['test'].items():
 
 # Test a single item from the training set
 train_dataset = datasets_collapsed['train']
-image, label, name = train_dataset[0]
+data = train_dataset[0]
+image, label, name = data['image'], data['label'], data['name']
 print(f"\nSample item - Name: {name}")
 print(f"Image shape: {image.shape}")
 print(f"Label shape: {label.shape}")
@@ -46,7 +47,7 @@ print(f"Label shape: {label.shape}")
 print("\nTesting DataLoader for dataset:")
 train_dataloader_collapsed = DataLoader(datasets_collapsed['train'], batch_size=4, shuffle=True)
 batch = next(iter(train_dataloader_collapsed))
-images, labels, names = batch
+images, labels, names = batch['image'], batch['label'], batch['name']
 
 # Introduce errors only in the positive labels (1s)
 error_rate = 0.2
