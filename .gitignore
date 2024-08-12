@@ -2,6 +2,6 @@
 *.png
 *.ipynb
 *.pyc
+.vscode/*
 !*.gitkeep
 !results/unit_test/*
-*.vscode
