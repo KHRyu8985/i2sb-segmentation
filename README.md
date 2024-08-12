@@ -16,6 +16,9 @@ i2sb-segmentation/
 ├── script/
 │   ├── exp.py
 │   └── unit_test/
+│       ├── test_segmentation_2d_dataset.py
+│       ├── test_segmentation_3d_dataset.py
+│       └── test_segmentation_model.py
 └── src/
     ├── __init__.py
     ├── archs/
@@ -69,6 +72,7 @@ i2sb-segmentation/
 - `data/`: 데이터셋 저장 위치
 - `nbs/`: Jupyter Notebook 파일 저장 위치
 - `script/`: 실험 및 테스트 스크립트 저장 위치
+  - `unit_test/`: 유닛 테스트 스크립트 저장 위치
 - `src/`: 소스 코드 저장 위치
   - `archs/`: 모델 아키텍처 관련 코드
   - `data/`: 데이터 처리 관련 코드
@@ -126,3 +130,20 @@ i2sb-segmentation/
    git checkout <commit-hash>
    dvc checkout
    ```
+
+### Script 사용법
+
+#### `script/unit_test/test_segmentation_2d_dataset.py`
+- 데이터셋을 로드하고, 데이터 로더를 통해 배치 단위로 데이터를 처리.
+- 데이터셋의 샘플을 시각화하고, 오류가 포함된 레이블을 생성하여 메트릭을 계산.
+- 데이터셋이 의도대로 잘 구현이 되었는지 확인 위한 목적
+
+#### `script/unit_test/test_archs.py`
+- 다양한 모델 아키텍처(SegResNet, FRNet, AttentionUNet 등)를 테스트.
+- 데이터셋을 로드하고 모델을 통해 예측을 수행한 후, 결과를 시각화.
+- Registry 사용하여 다양한 아키텍쳐들을 효과적으로 관리 가능.
+
+#### `script/unit_test/test_supervised_model_training.py`
+- SupervisedModel 클래스를 사용하여 모델을 학습하고 검증합니다.
+- 학습 및 검증 과정을 반복하며, 주기적으로 결과를 출력하고 시각화합니다.
+- 본 과정을 통해 Supervised Model 기법이 의도대로 잘 구현이 되었는지 확인 목적
