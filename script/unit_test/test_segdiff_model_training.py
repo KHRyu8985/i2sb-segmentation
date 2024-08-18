@@ -68,7 +68,8 @@ for epoch in range(100):
     Model.train_one_epoch(train_dataloader, epoch+1, 100)
     Model.train_one_epoch(train_dataloader, epoch+1, 100)
 
-    if epoch % 10 == 0: # skip the first 10 epochs
-        Model.val_one_epoch(valid_dataloader, epoch+1, 100, verbose=True) # if verbose = True, it will plot the images
-    else:
-        Model.val_one_epoch(valid_dataloader, epoch+1, 100, verbose=False) # else, it will not plot the images
+    if epoch % 5 == 0:
+        if epoch % 10 == 0: # skip the first 10 epochs
+            Model.val_one_epoch(valid_dataloader, epoch+1, 100, verbose=True) # if verbose = True, it will plot the images
+        else:
+            Model.val_one_epoch(valid_dataloader, epoch+1, 100, verbose=False) # else, it will not plot the images
