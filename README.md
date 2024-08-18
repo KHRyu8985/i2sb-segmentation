@@ -147,3 +147,8 @@ i2sb-segmentation/
 - SupervisedModel 클래스를 사용하여 모델을 학습하고 검증합니다.
 - 학습 및 검증 과정을 반복하며, 주기적으로 결과를 출력하고 시각화합니다.
 - 본 과정을 통해 Supervised Model 기법이 의도대로 잘 구현이 되었는지 확인 목적
+
+#### `script/unit_test/test_segdiff_model_training.py`
+- SegDiffModel 클래스를 사용하여 모델을 학습하고 검증합니다.
+- 학습 및 검증 과정을 반복하며, 주기적으로 결과를 출력하고 시각화합니다.
+- 본 과정을 통해 SegDiffModel 기법이 의도대로 잘 구현이 되었는지 확인 목적
