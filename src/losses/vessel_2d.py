@@ -48,3 +48,16 @@ class MonaiSoftDiceclDiceLoss(nn.Module):
 
     def forward(self, *args, **kwargs):
         return self.loss_fn(*args, **kwargs)
+    
+@LOSS_REGISTRY.register()
+class SegDiffLoss(nn.Module):
+    """
+    Loss for training segdiff
+    """
+    
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.loss_fn = DiceCELoss(**kwargs)
+    
+    def forward(self, *args, **kwargs):
+        return self.loss_fn(*args, **kwargs) 

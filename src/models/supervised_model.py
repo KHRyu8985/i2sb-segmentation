@@ -5,12 +5,8 @@ import torch
 class SupervisedModel(BaseModel):
     """ Inheriting from BaseModel """
 
-    def __init__(self, arch='FRNet', criterion='MonaiDiceCELoss', device='cuda:0', mode='train'):
-        super(SupervisedModel, self).__init__(
-            arch=arch, criterion=criterion, device=device, mode=mode)
-
-        self.arch = self.arch.to(self.device)
-        self.criterion = self.criterion.to(self.device)
+    def __init__(self, arch='FRNet', criterion='MonaiDiceCELoss', mode='train'):
+        super(SupervisedModel, self).__init__(arch=arch, criterion=criterion, mode=mode)
         self.optimizer = torch.optim.Adam(self.arch.parameters(), lr=2e-3)
 
     def feed_data(self, batch):
@@ -35,3 +31,5 @@ class SupervisedModel(BaseModel):
         output = self.arch(img)
         output = torch.sigmoid(output)
         return output, label
+    
+    

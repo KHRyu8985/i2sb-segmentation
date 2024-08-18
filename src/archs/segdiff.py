@@ -16,6 +16,7 @@ from src.archs.rrdb import RRDB, make_layer
 from einops import rearrange, reduce
 from functools import partial
 import math
+from src.utils.registry import ARCH_REGISTRY
 
 
 class G_model(nn.Module):
@@ -342,6 +343,20 @@ class E_dot_D(nn.Module):
         x = self.conv_out(x)
         return x
 
+@ARCH_REGISTRY.register()
+class SegDiffUnet(nn.Module):
+    def __init__(self, in_channels, out_channels, nf=64):
+        super(SegDiffUnet, self).__init__()
+        self.G = G_model(in_channels=in_channels, out_channels=nf)
+        self.F = F_model(in_channels=in_channels, out_channels=nf)
+        self.LUT = LUT(embedding_dim=nf, out_channels=nf)
+        self.E_dot_D = E_dot_D(in_channels=nf, out_channels=out_channels)
+    def forward(self, x_t, I, t): # x, c, t
+        G_output = self.G(I)
+        F_output = self.F(x_t)
+        LUT_output = self.LUT(t)
+        E_dot_D_output = self.E_dot_D(G_output + F_output, LUT_output)
+        return E_dot_D_output
 
 if __name__ == "__main__":
     # Define input dimensions
@@ -380,4 +395,9 @@ if __name__ == "__main__":
     # Forward pass through E_dot_D
     E_dot_D_output = E_dot_D_func(G_output + F_output, LUT_output)
     print("E_dot_D output shape:", E_dot_D_output.shape)
+    
+    # Add SegDiffUnet
+    SegDiffUnet_model = SegDiffUnet(in_channels=img_channels, out_channels=img_channels)
+    SegDiffUnet_output = SegDiffUnet_model(x_t, I, t)
+    print("SegDiffUnet output shape:", SegDiffUnet_output.shape)
 

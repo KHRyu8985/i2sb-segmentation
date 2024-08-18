@@ -158,28 +158,53 @@ def recall(predictions, labels, num_classes):
     return multi_class_score(one_class_recall, predictions, labels, num_classes=num_classes)
 
 def dice_metric(predictions, targets, smooth=1e-5):
+    if isinstance(predictions, np.ndarray):
+        predictions = torch.from_numpy(predictions)
+    if isinstance(targets, np.ndarray):
+        targets = torch.from_numpy(targets)
+    
     intersection = (predictions * targets).sum()
     union = predictions.sum() + targets.sum()
     dice = (2. * intersection + smooth) / (union + smooth)
     return dice
 
 def iou_metric(predictions, targets, smooth=1e-5):
+    if isinstance(predictions, np.ndarray):
+        predictions = torch.from_numpy(predictions)
+    if isinstance(targets, np.ndarray):
+        targets = torch.from_numpy(targets)
+    
     intersection = (predictions * targets).sum()
     union = predictions.sum() + targets.sum() - intersection
     iou = (intersection + smooth) / (union + smooth)
     return iou
 
 def accuracy_metric(predictions, targets):
+    if isinstance(predictions, np.ndarray):
+        predictions = torch.from_numpy(predictions)
+    if isinstance(targets, np.ndarray):
+        targets = torch.from_numpy(targets)
+    
     correct = (predictions == targets).float().sum()
     total = torch.numel(predictions)
     return correct / total
 
 def sensitivity_metric(predictions, targets, smooth=1e-5):
+    if isinstance(predictions, np.ndarray):
+        predictions = torch.from_numpy(predictions)
+    if isinstance(targets, np.ndarray):
+        targets = torch.from_numpy(targets)
+    
     true_positives = (predictions * targets).sum()
     actual_positives = targets.sum()
     return (true_positives + smooth) / (actual_positives + smooth)
 
 def specificity_metric(predictions, targets, smooth=1e-5):
+    if isinstance(predictions, np.ndarray):
+        predictions = torch.from_numpy(predictions)
+    if isinstance(targets, np.ndarray):
+        targets = torch.from_numpy(targets)
+    
     true_negatives = ((1 - predictions) * (1 - targets)).sum()
     actual_negatives = (1 - targets).sum()
     return (true_negatives + smooth) / (actual_negatives + smooth)
@@ -188,8 +213,18 @@ def cl_dice_metric(predictions, targets):
     def cl_score(v, s):
         return np.sum(v*s)/np.sum(s)
 
-    v_p = predictions.squeeze().cpu().numpy().astype(bool)
-    v_l = targets.squeeze().cpu().numpy().astype(bool)
+    if isinstance(predictions, torch.Tensor):
+        v_p = predictions.squeeze().cpu().numpy()
+    else:
+        v_p = predictions.squeeze()
+    
+    if isinstance(targets, torch.Tensor):
+        v_l = targets.squeeze().cpu().numpy()
+    else:
+        v_l = targets.squeeze()
+    
+    v_p = v_p.astype(bool)
+    v_l = v_l.astype(bool)
 
     if v_p.ndim == 2:
         tprec = cl_score(v_p, skeletonize(v_l))
@@ -203,12 +238,22 @@ def cl_dice_metric(predictions, targets):
     return 2 * tprec * tsens / (tprec + tsens)
 
 def calculate_all_metrics(predictions, targets, spacing=[1, 1, 1]):
-    # Ensure predictions and targets are in the correct shape
-    predictions = predictions.float()
-    targets = targets.float()
+    # Convert to float if necessary
+    if isinstance(predictions, np.ndarray):
+        predictions = predictions.astype(np.float32)
+    else:
+        predictions = predictions.float()
+    
+    if isinstance(targets, np.ndarray):
+        targets = targets.astype(np.float32)
+    else:
+        targets = targets.float()
     
     # For binary segmentation, we need to threshold the predictions
-    predictions = (predictions > 0.5).float()
+    if isinstance(predictions, np.ndarray):
+        predictions = (predictions > 0.5).astype(np.float32)
+    else:
+        predictions = (predictions > 0.5).float()
     
     # Calculate metrics
     dice = dice_metric(predictions, targets)
@@ -219,10 +264,10 @@ def calculate_all_metrics(predictions, targets, spacing=[1, 1, 1]):
     cl_dice = cl_dice_metric(predictions, targets)
     
     return {
-        "Dice": dice.item(),
-        "IoU": iou.item(),
-        "Accuracy": accuracy.item(),
-        "Sensitivity": sensitivity.item(),
-        "Specificity": specificity.item(),
+        "Dice": dice.item() if isinstance(dice, torch.Tensor) else dice,
+        "IoU": iou.item() if isinstance(iou, torch.Tensor) else iou,
+        "Accuracy": accuracy.item() if isinstance(accuracy, torch.Tensor) else accuracy,
+        "Sensitivity": sensitivity.item() if isinstance(sensitivity, torch.Tensor) else sensitivity,
+        "Specificity": specificity.item() if isinstance(specificity, torch.Tensor) else specificity,
         "clDice": cl_dice
     }

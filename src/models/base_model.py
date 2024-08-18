@@ -6,15 +6,17 @@ from src.utils.registry import ARCH_REGISTRY, LOSS_REGISTRY
 
 import time
 import torch
+import torch.nn as nn
 import src.metrics.vessel_2d as metrics
 from tqdm import tqdm
 
 import abc
 
-class BaseModel():
+class BaseModel(nn.Module):
     """Base model class for training segmentation models """
     
-    def __init__(self, arch='FRNet', criterion='DiceCELoss',device='cuda:0', mode='train'):
+    def __init__(self, arch='FRNet', criterion='DiceCELoss', mode='train'):
+        super(BaseModel, self).__init__()
         assert mode in ['train', 'infer'], f"mode should be either 'train' or 'infer', but got {mode}"
         assert arch in ARCH_REGISTRY, f"Architecture {arch} not found in ARCH_REGISTRY! Available architectures: {ARCH_REGISTRY.keys()}"
         assert mode in ['train', 'infer'], f"mode should be either 'train' or 'infer', but got {mode}"
@@ -22,9 +24,12 @@ class BaseModel():
         self.arch = ARCH_REGISTRY.get(arch)(in_channels=1, out_channels=1) # Could be FRNet, AttentionUNet, SegResNet
         self.criterion = LOSS_REGISTRY.get(criterion)() # Could be DiceCELoss, DiceLoss, CrossEntropyLoss
         self.mode = mode # train, infer
-        self.device = device
         self.first_verbose = True  # Add this flag to track the first verbose plotting
-    
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+        
     @abc.abstractmethod
     def feed_data(self, batch):
         # how is input and label data derived from batch
