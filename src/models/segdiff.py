@@ -110,7 +110,7 @@ class SegDiffModel(SupervisedModel):
 
     def __init__(self, arch='FRNet', criterion='MonaiDiceCELoss',
                  mode='train', beta_schedule='sigmoid', min_snr_loss_weight=False, min_snr_gamma=5, objective='pred_x0', auto_normalize=True,
-                 timesteps=500):
+                 timesteps=250):
         super().__init__(arch=arch, criterion=criterion, mode=mode)
 
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용

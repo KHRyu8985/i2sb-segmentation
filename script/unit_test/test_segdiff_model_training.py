@@ -1,4 +1,6 @@
 import autorootcwd
+import torch
+
 import src.data
 import src.losses
 import src.metrics
@@ -37,16 +39,16 @@ for split, dataset in datasets_collapsed.items():
 train_dataset = datasets_collapsed['train']
 valid_dataset = datasets_collapsed['val']
 
-valid_indices = list(range(10))
-valid_dataset = Subset(valid_dataset, valid_indices)
+valid_indices = list(range(20))
+valid_dataset = Subset(valid_dataset, valid_indices) # 20개만으로 validation dataset 줄임 (시간을 위해)
 
 test_dataset = datasets_collapsed['test']
 
 print('Length of datasets:')
 print(len(train_dataset), len(valid_dataset), len(test_dataset))
 
-train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-valid_dataloader = DataLoader(valid_dataset, batch_size=10, shuffle=False)
+train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4)
+valid_dataloader = DataLoader(valid_dataset, batch_size=20, shuffle=False,num_workers=0)
 
 #printing the arch and criterion available in the registry
 print('Available arch in the registry:')
@@ -63,6 +65,8 @@ Model.to('cuda:0')
 # Perform train and val one epoch
 for epoch in range(100):
     print(f"Epoch {epoch+1}")
+    Model.train_one_epoch(train_dataloader, epoch+1, 100)
+    Model.train_one_epoch(train_dataloader, epoch+1, 100)
     Model.train_one_epoch(train_dataloader, epoch+1, 100)
     Model.train_one_epoch(train_dataloader, epoch+1, 100)
     Model.train_one_epoch(train_dataloader, epoch+1, 100)
