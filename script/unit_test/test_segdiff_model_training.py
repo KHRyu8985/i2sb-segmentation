@@ -47,7 +47,7 @@ test_dataset = datasets_collapsed['test']
 print('Length of datasets:')
 print(len(train_dataset), len(valid_dataset), len(test_dataset))
 
-train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4)
+train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=4)
 valid_dataloader = DataLoader(valid_dataset, batch_size=20, shuffle=False,num_workers=0)
 
 #printing the arch and criterion available in the registry

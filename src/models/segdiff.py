@@ -108,9 +108,9 @@ class SegDiffModel(SupervisedModel):
     그래야 논문을 이해하는데 도움이 되고, 다른 사람들이 코드를 이해하는데 도움이 됨
     """
 
-    def __init__(self, arch='FRNet', criterion='MonaiDiceCELoss',
-                 mode='train', beta_schedule='sigmoid', min_snr_loss_weight=False, min_snr_gamma=5, objective='pred_x0', auto_normalize=True,
-                 timesteps=250):
+    def __init__(self, arch='SegDiffUnet', criterion='MonaiDiceCELoss',
+                 mode='train', beta_schedule='linear', min_snr_loss_weight='sigmoid', min_snr_gamma=5, objective='pred_x0', auto_normalize=True,
+                 timesteps=100):
         super().__init__(arch=arch, criterion=criterion, mode=mode)
 
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용
