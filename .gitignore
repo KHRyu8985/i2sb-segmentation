@@ -9,5 +9,34 @@ results/*
 
 # But don't ignore CSV and TXT files in results and its subdirectories
 !results/
+!results/**/
 !results/**/*.csv
 !results/**/*.txt
+
+# Explicitly ignore specific file types even if they end with .csv or .txt
+results/**/*.sst
+results/**/*.log
+results/**/*-starting-*
+results/**/*-progress-*
+results/**/CURRENT
+results/**/IDENTITY
+results/**/LOCK
+results/**/LOG
+results/**/MANIFEST-*
+results/**/OPTIONS-*
+results/**/*.pt
+results/**/*.sqlite
+results/**/*.nii.gz
+results/**/VERSION
+results/**/*.softlock
+results/**/run_metadata.sqlite
+results/**/aim_run_hash.txt
+results/**/meta/progress/*
+results/**/seqs/progress/*
+results/**/locks/*
+
+# Ignore files with long hexadecimal names (likely temporary or system files)
+results/**/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*
+
+# Keep .gitkeep files
+!results/**/.gitkeep
