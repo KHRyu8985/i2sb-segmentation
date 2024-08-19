@@ -1,0 +1,6 @@
+outs:
+- md5: 2634a22cd1d44966b58478c39ffa21cb.dir
+  size: 96646800
+  nfiles: 600
+  hash: md5
+  path: OCTA500_6M

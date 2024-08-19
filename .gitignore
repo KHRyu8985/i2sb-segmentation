@@ -1,0 +1,13 @@
+*.bmp
+*.png
+*.ipynb
+*.pyc
+.vscode/*
+
+# Ignore everything in results
+results/*
+
+# But don't ignore CSV and TXT files in results and its subdirectories
+!results/
+!results/**/*.csv
+!results/**/*.txt

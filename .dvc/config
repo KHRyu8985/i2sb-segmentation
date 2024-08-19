@@ -1,0 +1,7 @@
+[core]
+    remote = myremote
+['remote "myremote"']
+    url = ssh://kanghyun@121.178.82.120:/mnt/hdd/data/dvc-backup
+    user = kanghyun
+    password = 898512
+    port = 22
