@@ -7,7 +7,7 @@ class SupervisedModel(BaseModel):
 
     def __init__(self, arch='FRNet', criterion='MonaiDiceCELoss', mode='train', name=None):
         super(SupervisedModel, self).__init__(arch=arch, criterion=criterion, mode=mode, name=name)
-        self.optimizer = torch.optim.Adam(self.arch.parameters(), lr=2e-3)
+        self.optimizer = torch.optim.AdamW(self.arch.parameters(), lr=1e-3)
 
     def feed_data(self, batch):
         img, label = batch['image'], batch['label']
