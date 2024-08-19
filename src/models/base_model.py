@@ -24,7 +24,7 @@ class BaseModel(nn.Module):
         self.criterion = LOSS_REGISTRY.get(criterion)() # Could be DiceCELoss, DiceLoss, CrossEntropyLoss
         self.mode = mode # train, infer
         self.first_verbose = True  # Add this flag to track the first verbose plotting
-        self.name = name if name else f"{arch}_{criterion}"
+        self.name = name if name else f"{arch}__{criterion}"
 
     @property
     def device(self):

@@ -29,7 +29,7 @@ def main(result_folder, batch_size, interactive):
 
     # Infer dataset, architecture, and loss from the result folder name
     folder_name = os.path.basename(result_folder)
-    parts = folder_name.split('_')
+    parts = folder_name.split('__')
     dataset = parts[2]
     arch = parts[0]
     criterion = parts[1]

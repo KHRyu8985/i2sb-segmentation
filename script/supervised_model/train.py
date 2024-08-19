@@ -53,7 +53,7 @@ def main(dset, network, loss, train_batch_size, valid_batch_size, train_num_step
 
     model = SupervisedModel(arch=network, criterion=loss, mode='train')
     model_folder_name = model.get_name()
-    dataset_model_folder_name = model_folder_name + '_' + dset
+    dataset_model_folder_name = model_folder_name + '__' + dset
     
     model.set_name(dataset_model_folder_name)
     print('Saving the result to the folder:', dataset_model_folder_name)

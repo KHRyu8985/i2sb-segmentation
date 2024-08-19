@@ -116,7 +116,7 @@ class SegDiffModel(SupervisedModel):
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용
         # arch 모델은 eta_theta = D(E(F(x_t) + G(I), t), t) 이다. 여기에서 I 는 이미지, x_t는 t시점의 segmentation map
         # x_t 와 I 를 혼동하면 안됨
-        self.name = name if name else f"{arch}_{beta_schedule}_{objective}_{timesteps}"
+        self.name = name if name else f"{arch}__{beta_schedule}__{objective}__{timesteps}"
         self.optimizer = torch.optim.Adam(self.arch.parameters(), lr=2e-3)
         self.timesteps = timesteps
         self.objective = objective
