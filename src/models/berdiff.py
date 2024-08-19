@@ -12,7 +12,7 @@ from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
 import numpy as np
 from src.metrics.vessel_2d import dice_metric
-from .segdiff import SegDiffModel
+from .segdiff_model import SegDiffModel
 
 ModelPrediction = namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
 # ModelPrediction: 모델 예측 결과를 저장하는 namedtuple (pred_noise: 예측된 noise, pred_x_start: 예측된 x_start)
