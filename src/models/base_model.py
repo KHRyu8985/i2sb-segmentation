@@ -21,7 +21,10 @@ class BaseModel(nn.Module):
         assert arch in ARCH_REGISTRY, f"Architecture {arch} not found in ARCH_REGISTRY! Available architectures: {ARCH_REGISTRY.keys()}"
 
         self.arch = ARCH_REGISTRY.get(arch)(in_channels=1, out_channels=1) # Could be FRNet, AttentionUNet, SegResNet
-        self.criterion = LOSS_REGISTRY.get(criterion)() # Could be DiceCELoss, DiceLoss, CrossEntropyLoss
+        try:
+            self.criterion = LOSS_REGISTRY.get(criterion)() # Could be DiceCELoss, DiceLoss, CrossEntropyLoss
+        except:
+            self.criterion = None
         self.mode = mode # train, infer
         self.first_verbose = True  # Add this flag to track the first verbose plotting
         self.name = name if name else f"{arch}__{criterion}"

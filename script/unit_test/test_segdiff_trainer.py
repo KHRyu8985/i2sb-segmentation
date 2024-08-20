@@ -37,7 +37,7 @@ test_dataset = datasets_collapsed['test']
 print('Length of datasets:')
 print(len(train_dataset), len(valid_dataset), len(test_dataset))
 
-train_dataloader = DataLoader(train_dataset, batch_size=16, num_workers=4, shuffle=True)
+train_dataloader = DataLoader(train_dataset, batch_size=8, num_workers=4, shuffle=True)
 valid_dataloader = DataLoader(valid_dataset, batch_size=20, num_workers=4, shuffle=False)
 
 #printing the arch and criterion available in the registry
@@ -47,18 +47,18 @@ print(ARCH_REGISTRY.keys())
 print('Available loss in the registry:')
 print(LOSS_REGISTRY.keys())
 
-model = SegDiffModel(arch='SegDiffUnet', criterion='MonaiDiceFocalLoss', mode='train')
+model = SegDiffModel(arch='SegDiffUnet', criterion='pred_noise', mode='train')
 trainer = Trainer(
     model=model,
     train_dataloader=train_dataloader,
     valid_dataloader=valid_dataloader,
-    train_batch_size=4,
-    train_num_steps=1000,
-    valid_every=100,
-    save_every=500
+    train_num_steps=20000,
+    valid_every=1000,
+    save_every=1000
 )
 trainer.train()
 
+"""
 model_folder_name = model.get_name()
 
 print('TESTING RESUME')
@@ -66,11 +66,10 @@ trainer = Trainer(
     model=model,
     train_dataloader=train_dataloader,
     valid_dataloader=valid_dataloader,
-    train_batch_size=4,
-    train_num_steps=10000,
-    valid_every=100,
-    save_every=500,
+    train_num_steps=20000,
+    valid_every=500,
+    save_every=1000,
     resume_from=os.path.join('results',model_folder_name)
 )
 trainer.train()
-
+"""

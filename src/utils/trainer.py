@@ -225,7 +225,11 @@ class Trainer(object):
         with torch.inference_mode():
             for batch in self.valid_dl:
                 output, label = self.model.valid_step(batch)
-                loss = self.model.criterion(output, label)
+                if isinstance(self.model.criterion, str):
+                    loss = torch.nn.functional.mse_loss(output, label)
+                else:
+                    loss = self.model.criterion(output, label)
+
                 val_loss += loss.item()
 
         val_loss /= len(self.valid_dl)

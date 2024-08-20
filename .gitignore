@@ -3,40 +3,44 @@
 *.ipynb
 *.pyc
 .vscode/*
+.aim/*  
 
 # Ignore everything in results
 results/*
 
 # But don't ignore CSV and TXT files in results and its subdirectories
-!results/
-!results/**/
-!results/**/*.csv
-!results/**/*.txt
+#!results/
+#!results/**/
+#!results/**/*.csv
+#!results/**/*.txt
 
-# Explicitly ignore specific file types even if they end with .csv or .txt
-results/**/*.sst
-results/**/*.log
+# Ignore .aim related files and directories
+results/**/*.aim
+results/**/.aim/
+results/**/.aim/**/*
+results/**/meta/chunks/
+results/**/seqs/chunks/
 results/**/*-starting-*
 results/**/*-progress-*
+results/**/*.sst
+results/**/*.log
 results/**/CURRENT
 results/**/IDENTITY
 results/**/LOCK
 results/**/LOG
 results/**/MANIFEST-*
 results/**/OPTIONS-*
-results/**/*.pt
-results/**/*.sqlite
-results/**/*.nii.gz
-results/**/VERSION
 results/**/*.softlock
 results/**/run_metadata.sqlite
-results/**/aim_run_hash.txt
-results/**/meta/progress/*
-results/**/seqs/progress/*
-results/**/locks/*
 
 # Ignore files with long hexadecimal names (likely temporary or system files)
-results/**/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*
+results/**/[0-9a-f]{32}*
 
 # Keep .gitkeep files
 !results/**/.gitkeep
+.aim/check_ins/042ac597af014d4eb14bdd92-0000000000000001-starting-1724118991.90-00000
+results/**/model-best-other.pt
+results/**/*.pt
+results/**/*.nii.gz
+results/**/*.txt
+results/**/*.csv

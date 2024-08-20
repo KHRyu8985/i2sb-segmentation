@@ -12,6 +12,7 @@ from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
 import numpy as np
 from src.metrics.vessel_2d import dice_metric
+from src.utils.registry import ARCH_REGISTRY, LOSS_REGISTRY
 
 ModelPrediction = namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
 # ModelPrediction: 모델 예측 결과를 저장하는 namedtuple (pred_noise: 예측된 noise, pred_x_start: 예측된 x_start)
@@ -108,18 +109,18 @@ class SegDiffModel(SupervisedModel):
     그래야 논문을 이해하는데 도움이 되고, 다른 사람들이 코드를 이해하는데 도움이 됨
     """
 
-    def __init__(self, arch='SegDiffUnet', criterion='MonaiDiceCELoss',
-                 mode='train', beta_schedule='sigmoid', min_snr_loss_weight='sigmoid', min_snr_gamma=5, objective='pred_x0', auto_normalize=True,
-                 timesteps=100, name=None):
-        super().__init__(arch=arch, criterion=criterion, mode=mode)
+    def __init__(self, arch='SegDiffUnet', criterion='pred_x0',
+                 mode='train', beta_schedule='sigmoid', min_snr_loss_weight=True, min_snr_gamma=5, timesteps=100, name=None):
 
+        super(SegDiffModel, self).__init__(arch=arch, criterion=criterion, mode=mode, name=name)
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용
         # arch 모델은 eta_theta = D(E(F(x_t) + G(I), t), t) 이다. 여기에서 I 는 이미지, x_t는 t시점의 segmentation map
         # x_t 와 I 를 혼동하면 안됨
-        self.name = name if name else f"{arch}__{beta_schedule}__{objective}__{timesteps}"
+
+        self.name = name if name else f"{arch}__{beta_schedule}__{criterion}__{timesteps}"
         self.optimizer = torch.optim.Adam(self.arch.parameters(), lr=2e-3)
         self.timesteps = timesteps
-        self.objective = objective
+        self.criterion = criterion
 
         if beta_schedule == 'linear':
             betas = linear_beta_schedule(timesteps)
@@ -138,7 +139,7 @@ class SegDiffModel(SupervisedModel):
         # helper function to register buffer from float64 to float32
         # register_buffer를 써야하는 이유: https://www.ai-bio.info/pytorch-register-buffer
         # register_buffer에 등록된 애들은 자동으로 cuda로 옮기기 편하다.
-        # register_buffer에 등�� 애들은 학습 되지 않는다! (아주 중요!!)
+        # register_buffer에 등록된 애들은 학습 되지 않는다! (아주 중요!!)
 
         def register_buffer(name, val): return self.register_buffer(
             name, val.to(torch.float32))
@@ -181,16 +182,12 @@ class SegDiffModel(SupervisedModel):
             maybe_clipped_snr.clamp_(max=min_snr_gamma)  # min_snr_gamma
 
         # default: pred_v
-        if objective == 'pred_noise':  # 기존의 DDPM: noise 예측
+        if criterion == 'pred_noise':  # 기존의 DDPM: noise 예측
             register_buffer('loss_weight', maybe_clipped_snr / snr)
-        elif objective == 'pred_x0':  # x0를 예측하는 것
+        elif criterion == 'pred_x0':  # x0를 예측하는 것
             register_buffer('loss_weight', maybe_clipped_snr)
-
-        # velocity v 를 예측
-        # https://arxiv.org/abs/2112.10752
-        elif objective == 'pred_v':
-            register_buffer('loss_weight', maybe_clipped_snr / (snr + 1))
-
+        else:
+            raise ValueError(f'unknown criterion {criterion}')
     ############### Training stage ###############
     def predict_start_from_noise(self, x_t, t, noise):
         """
@@ -241,12 +238,12 @@ class SegDiffModel(SupervisedModel):
         maybe_clip = partial(torch.clamp, min=-1.,
                              max=1.) if clip_x_start else identity
 
-        if self.objective == 'pred_noise':
+        if self.criterion == 'pred_noise':
             pred_noise = model_output
             x_start = self.predict_start_from_noise(x, t, pred_noise)
             x_start = maybe_clip(x_start)
 
-        elif self.objective == 'pred_x0':
+        elif self.criterion == 'pred_x0':
             x_start = model_output
             x_start = maybe_clip(x_start)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
@@ -277,7 +274,7 @@ class SegDiffModel(SupervisedModel):
         return pred_img, x_start
 
     @torch.no_grad()
-    def p_sample_loop(self, cond):
+    def p_sample_loop(self, cond, verbose=True):
         shape = cond.shape
         batch = shape[0]
 
@@ -285,7 +282,11 @@ class SegDiffModel(SupervisedModel):
 
         x_start = None
 
-        for t in tqdm(reversed(range(0, self.timesteps)), desc='sampling loop time step', total=self.timesteps):
+        time_range = reversed(range(0, self.timesteps))
+        if verbose:
+            time_range = tqdm(time_range, desc='sampling loop time step', total=self.timesteps)
+
+        for t in time_range:
             # 주의, 여기에서 cond 가 I, img 는 x 이다.
             img, x_start = self.p_sample(img, t, cond)
 
@@ -322,13 +323,18 @@ class SegDiffModel(SupervisedModel):
 
         model_out = self.arch(x, cond, t)
 
-        if self.objective == 'pred_noise':
+        if self.criterion == 'pred_noise':
             target = noise
-        elif self.objective == 'pred_x0':
+        elif self.criterion == 'pred_x0':
             target = x_start
         else:
-            raise ValueError(f'unknown objective {self.objective}')
-        return F.mse_loss(model_out, target)
+            raise ValueError(f'unknown criterion {self.criterion}')
+        
+        loss = F.mse_loss(model_out, target, reduction = 'none')
+        loss = reduce(loss, 'b ... -> b', 'mean')
+
+        loss = loss * extract(self.loss_weight, t, loss.shape) # added loss weight
+        return loss.mean()
 
     def forward(self, batch):
         img, label = self.feed_data(batch)
@@ -357,9 +363,16 @@ class SegDiffModel(SupervisedModel):
         self.optimizer.step()
         return loss.item()
 
-    def valid_step(self, batch):
+    def valid_step(self, batch, verbose=False):
         img, label = self.feed_data(batch)
-        output = self.p_sample_loop(cond=img)
+        output = self.p_sample_loop(cond=img, verbose=verbose)
+        return output, label
+    
+    def infer_step(self, batch, verbose=True):
+        img, label = self.feed_data(batch)
+        output = self.p_sample_loop(cond=img, verbose=verbose)
+        
+        output = (output > 0.5) # thresholding
         return output, label
     
     def val_one_epoch(self, dataloader, current_epoch, total_epoch=0, verbose=True, base_folder='results/seg_diff'):
@@ -370,7 +383,7 @@ class SegDiffModel(SupervisedModel):
         with tqdm(total=len(dataloader), desc=f"Validation Epoch {current_epoch}/{total_epoch}") as pbar:
             for batch_idx, batch in enumerate(dataloader):
                 
-                _pred_seg, _label = self.valid_step(batch)
+                _pred_seg, _label = self.valid_step(batch, verbose=verbose)
                 _pred_seg = _pred_seg.detach().cpu().numpy()
                 _label = _label.detach().cpu().numpy()
                 _im = batch['image'].detach().cpu().numpy()
