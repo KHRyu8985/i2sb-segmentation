@@ -53,7 +53,7 @@ trainer = Trainer(
     train_dataloader=train_dataloader,
     valid_dataloader=valid_dataloader,
     train_num_steps=20000,
-    valid_every=1000,
+    valid_every=500,
     save_every=1000
 )
 trainer.train()

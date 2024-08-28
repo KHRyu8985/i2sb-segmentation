@@ -9,6 +9,8 @@ import os
 from aim import Run  # Add this import
 import nibabel as nib
 import numpy as np
+from ema_pytorch import EMA
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 def exists(x):
     return x is not None
@@ -28,6 +30,9 @@ class Trainer(object):
         train_num_steps = 100000,
         valid_every = 1000,
         save_every = 5000,
+        ema_update_every = 10,
+        ema_decay = 0.995,
+        use_ema = True,
         results_folder = 'results',
         amp = False,
         fp16 = False,
@@ -76,6 +81,16 @@ class Trainer(object):
         # step counter state
         self.step = 0
 
+        self.use_ema = use_ema
+        if self.use_ema and self.accelerator.is_main_process:
+            self.ema = EMA(self.model, beta=ema_decay, update_every=ema_update_every)
+            self.ema.to(self.accelerator.device)
+        else:
+            self.ema = None
+
+        # Add scheduler
+        self.scheduler = ReduceLROnPlateau(self.model.optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+
         # prepare model, optimizer with accelerator
         self.model, self.model.optimizer = self.accelerator.prepare(self.model, self.model.optimizer)
 
@@ -96,7 +111,8 @@ class Trainer(object):
                 "save_every": save_every,
                 "amp": amp,
                 "fp16": fp16,
-                "split_batches": split_batches
+                "split_batches": split_batches,
+                "use_ema": use_ema
             }
 
     def save(self, val_loss):
@@ -110,12 +126,19 @@ class Trainer(object):
             # Save model weights
             torch.save(model_state, str(self.results_folder / f'model-best-weights.pt'))
             
+            # Save EMA weights if used
+            if self.use_ema:
+                ema_state = self.ema.state_dict()
+                torch.save(ema_state, str(self.results_folder / f'model-best-ema-weights.pt'))
+            
             # Save other data
             other_data = {
                 'step': self.step,
                 'opt': self.model.optimizer.state_dict(),
                 'scaler': self.accelerator.scaler.state_dict() if exists(self.accelerator.scaler) else None,
-                'best_val_loss': self.best_val_loss
+                'best_val_loss': self.best_val_loss,
+                'scheduler': self.scheduler.state_dict(),
+                'use_ema': self.use_ema
             }
             torch.save(other_data, str(self.results_folder / f'model-best-other.pt'))
 
@@ -148,6 +171,23 @@ class Trainer(object):
 
             if exists(self.accelerator.scaler) and 'scaler' in other_data:
                 self.accelerator.scaler.load_state_dict(other_data['scaler'])
+
+            # Load scheduler state
+            if 'scheduler' in other_data:
+                self.scheduler.load_state_dict(other_data['scheduler'])
+
+            # Load EMA weights if used
+            self.use_ema = other_data.get('use_ema', False)
+            if self.use_ema:
+                ema_path = os.path.join(checkpoint_folder, 'model-best-ema-weights.pt')
+                if os.path.exists(ema_path):
+                    ema_state = torch.load(ema_path, map_location=device)
+                    self.ema.load_state_dict(ema_state)
+                else:
+                    print("EMA weights not found. Initializing EMA with current model weights.")
+                    self.ema = EMA(self.model, beta=self.ema.beta, update_every=self.ema.update_every)
+            else:
+                self.ema = None
         except Exception as e:
             print(f"Warning: Failed to load other data. Error: {str(e)}")
             print("Continuing with default values for step and best_val_loss.")
@@ -177,30 +217,54 @@ class Trainer(object):
         accelerator = self.accelerator
         device = accelerator.device
 
-        with tqdm(initial = self.step, total = self.train_num_steps, disable = not accelerator.is_main_process) as pbar:
-
+        with tqdm(initial=self.step, total=self.train_num_steps, disable=not accelerator.is_main_process) as pbar:
             while self.step < self.train_num_steps:
-
                 total_loss = 0.
+                loss_dict = {}
 
                 for _ in range(self.gradient_accumulate_every):
                     batch = next(self.train_dl)
 
                     with self.accelerator.autocast():
-                        loss = self.model(batch)
-                        loss = loss / self.gradient_accumulate_every
-                        total_loss += loss
+                        model_output = self.model(batch)
+                        
+                        if isinstance(model_output, tuple):
+                            loss, batch_loss_dict = model_output
+                            loss = loss / self.gradient_accumulate_every
+                            total_loss += loss.item()
+                            
+                            for key, value in batch_loss_dict.items():
+                                if key not in loss_dict:
+                                    loss_dict[key] = 0
+                                loss_dict[key] += value / self.gradient_accumulate_every
+                        else:
+                            loss = model_output / self.gradient_accumulate_every
+                            total_loss += loss.item()
 
                     self.accelerator.backward(loss)
 
                 accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
-                self.aim_run.track(total_loss.item(), name="train_loss", step=self.step, context={'subset': 'train'})
-                pbar.set_description(f'loss: {total_loss:.4f}')
+                
+                # Track losses
+                self.aim_run.track(total_loss, name="train_loss", step=self.step, context={'subset': 'train'})
+                for key, value in loss_dict.items():
+                    self.aim_run.track(value, name=f"train_{key}_loss", step=self.step, context={'subset': 'train'})
+                
+                # Update progress bar description
+                if loss_dict:
+                    pbar_desc = f'loss: {total_loss:.4f} ' + ' '.join([f'{k}: {v:.4f}' for k, v in loss_dict.items()])
+                else:
+                    pbar_desc = f'loss: {total_loss:.4f}'
+                pbar.set_description(pbar_desc)
 
                 accelerator.wait_for_everyone()
 
                 self.model.optimizer.step()
                 self.model.optimizer.zero_grad()
+
+                # Update EMA model if used
+                if self.use_ema:
+                    self.ema.update()
 
                 accelerator.wait_for_everyone()
 
@@ -209,6 +273,10 @@ class Trainer(object):
                 if self.step != 0 and self.step % self.valid_every == 0:
                     val_loss = self.validate()
                     self.aim_run.track(val_loss, name="val_loss", step=self.step, context={'subset': 'val'})
+                    
+                    # Step the scheduler
+                    self.scheduler.step(val_loss)
+                    
                     if self.step % self.save_every == 0:
                         self.save(val_loss)
 

@@ -13,19 +13,94 @@ from einops.layers.torch import Rearrange
 import numpy as np
 from src.metrics.vessel_2d import dice_metric
 from src.utils.registry import ARCH_REGISTRY, LOSS_REGISTRY
+from monai.losses import DiceLoss
 
 ModelPrediction = namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
 # ModelPrediction: 모델 예측 결과를 저장하는 namedtuple (pred_noise: 예측된 noise, pred_x_start: 예측된 x_start)
 # prediction = ModelPrediction(pred_noise, pred_x_start)
 # prediction.pred_noise, prediction.pred_x_start
 
+def mean_flat(tensor):
+    """
+    Take the mean over all non-batch dimensions.
+    """
+    return tensor.mean(dim=list(range(1, len(tensor.shape))))
+
+
+def normal_kl(mean1, logvar1, mean2, logvar2):
+    """
+    Compute the KL divergence between two gaussians.
+
+    Shapes are automatically broadcasted, so batches can be compared to
+    scalars, among other use cases.
+    """
+    tensor = None
+    for obj in (mean1, logvar1, mean2, logvar2):
+        if isinstance(obj, torch.Tensor):
+            tensor = obj
+            break
+    assert tensor is not None, "at least one argument must be a Tensor"
+
+    # Force variances to be Tensors. Broadcasting helps convert scalars to
+    # Tensors, but it does not work for th.exp().
+    logvar1, logvar2 = [
+        x if isinstance(x, torch.Tensor) else torch.tensor(x).to(tensor)
+        for x in (logvar1, logvar2)
+    ]
+
+    return 0.5 * (
+        -1.0
+        + logvar2
+        - logvar1
+        + torch.exp(logvar1 - logvar2)
+        + ((mean1 - mean2) ** 2) * torch.exp(-logvar2)
+    )
+
+
+def approx_standard_normal_cdf(x):
+    """
+    A fast approximation of the cumulative distribution function of the
+    standard normal.
+    """
+    # Convert np.sqrt(2.0 / np.pi) to a tensor
+    return 0.5 * (1.0 + torch.tanh(torch.tensor(np.sqrt(2.0 / np.pi)) * (x + 0.044715 * torch.pow(x, 3))))
+
+
+def discretized_gaussian_log_likelihood(x, *, means, log_scales):
+    """
+    Compute the log-likelihood of a Gaussian distribution discretizing to a
+    given image.
+
+    :param x: the target images. It is assumed that this was uint8 values,
+              rescaled to the range [-1, 1].
+    :param means: the Gaussian mean Tensor.
+    :param log_scales: the Gaussian log stddev Tensor.
+    :return: a tensor like x of log probabilities (in nats).
+    """
+
+    centered_x = x - means
+    inv_stdv = torch.exp(-log_scales)
+    plus_in = inv_stdv * (centered_x + 1.0 / 255.0)
+    cdf_plus = approx_standard_normal_cdf(plus_in)
+    min_in = inv_stdv * (centered_x - 1.0 / 255.0)
+    cdf_min = approx_standard_normal_cdf(min_in)
+    log_cdf_plus = torch.log(cdf_plus.clamp(min=1e-12))
+    log_one_minus_cdf_min = torch.log((1.0 - cdf_min).clamp(min=1e-12))
+    cdf_delta = cdf_plus - cdf_min
+    log_probs = torch.where(
+        x < -0.999,
+        log_cdf_plus,
+        torch.where(x > 0.999, log_one_minus_cdf_min, torch.log(cdf_delta.clamp(min=1e-12))),
+    )
+    assert log_probs.shape == x.shape
+    return log_probs
 
 def exists(x):
     return x is not None
 
 
 def default(val, d):
-    # val이 존재하는지 확인, 존재하지 않으면 d 반환
+    # val이 존재하는지 확인, 존재하지 않으�� d 반환
     if exists(val):
         return val
     return d() if callable(d) else d
@@ -110,15 +185,16 @@ class SegDiffModel(SupervisedModel):
     """
 
     def __init__(self, arch='SegDiffUnet', criterion='pred_x0',
-                 mode='train', beta_schedule='sigmoid', min_snr_loss_weight=True, min_snr_gamma=5, timesteps=100, name=None):
+                 mode='train', beta_schedule='sigmoid', min_snr_loss_weight=True, min_snr_gamma=5, timesteps=100, name=None,
+                 mse_weight=100.0, dice_weight=10, vb_weight=0.1):
 
         super(SegDiffModel, self).__init__(arch=arch, criterion=criterion, mode=mode, name=name)
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용
-        # arch 모델은 eta_theta = D(E(F(x_t) + G(I), t), t) 이다. 여기에서 I 는 이미지, x_t는 t시점의 segmentation map
+        # arch 모델은 eta_theta = D(E(F(x_t) + G(I), t), t) 이��. 여기에서 I 는 이미지, x_t는 t시점의 segmentation map
         # x_t 와 I 를 혼동하면 안됨
 
         self.name = name if name else f"{arch}__{beta_schedule}__{criterion}__{timesteps}"
-        self.optimizer = torch.optim.Adam(self.arch.parameters(), lr=2e-3)
+        self.optimizer = torch.optim.AdamW(self.arch.parameters(), lr=1e-3)
         self.timesteps = timesteps
         self.criterion = criterion
 
@@ -188,6 +264,12 @@ class SegDiffModel(SupervisedModel):
             register_buffer('loss_weight', maybe_clipped_snr)
         else:
             raise ValueError(f'unknown criterion {criterion}')
+        self.dice_loss = DiceLoss(sigmoid=False, reduction="none")
+
+        self.mse_weight = mse_weight
+        self.dice_weight = dice_weight
+        self.vb_weight = vb_weight
+
     ############### Training stage ###############
     def predict_start_from_noise(self, x_t, t, noise):
         """
@@ -313,15 +395,36 @@ class SegDiffModel(SupervisedModel):
 
         return x_t
 
+    def _vb_terms_bpd(self, x_start, x_t, t, c, clip_denoised=True):
+        """
+        Get a term for the variational lower-bound.
+        """
+        true_mean, _, true_log_variance_clipped = self.q_posterior(x_start, x_t, t) # x_{t-1} mean variance
+        out_mean, _, out_log_variance, out_x_start = self.p_mean_variance(x_t, t, c, clip_denoised=clip_denoised)
+        kl = normal_kl(
+            true_mean, true_log_variance_clipped, out_mean, out_log_variance
+        )
+        kl = mean_flat(kl) / np.log(2.0)
+
+        decoder_nll = -discretized_gaussian_log_likelihood(
+            x_start, means=out_mean, log_scales=0.5 * out_log_variance
+        )
+        
+        assert decoder_nll.shape == x_start.shape
+        decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+
+        # At the first timestep return the decoder NLL,
+        # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+        output = torch.where((t == 0), decoder_nll, kl)
+        return output
+
     def p_losses(self, x_start, t, cond, noise=None):
         b, c, h, w = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
 
-        # noise sample
-
         x = self.q_sample(x_start=x_start, t=t, noise=noise)
 
-        model_out = self.arch(x, cond, t)
+        model_output = self.arch(x, cond, t)
 
         if self.criterion == 'pred_noise':
             target = noise
@@ -330,19 +433,50 @@ class SegDiffModel(SupervisedModel):
         else:
             raise ValueError(f'unknown criterion {self.criterion}')
         
-        loss = F.mse_loss(model_out, target, reduction = 'none')
-        loss = reduce(loss, 'b ... -> b', 'mean')
+        # Calculate individual losses
+        mse_loss = F.mse_loss(model_output, target, reduction='none')
+        mse_loss = reduce(mse_loss, 'b ... -> b', 'mean')
 
-        loss = loss * extract(self.loss_weight, t, loss.shape) # added loss weight
-        return loss.mean()
+        seg_out = unnormalize_to_zero_to_one(model_output)
+        seg_out.clamp_(0., 1.)
+
+        x_start_seg = unnormalize_to_zero_to_one(x_start)
+        dice_loss = self.dice_loss(seg_out, x_start_seg)
+        dice_loss = reduce(dice_loss, 'b ... -> b', 'mean')
+
+        vb_loss = self._vb_terms_bpd(
+            x_start=x_start,
+            x_t=x,
+            t=t,
+            c=cond,
+            clip_denoised=False,
+        )
+        
+        # Apply weights and combine losses
+        weighted_mse_loss = self.mse_weight * mse_loss
+        weighted_dice_loss = self.dice_weight * dice_loss
+        weighted_vb_loss = self.vb_weight * vb_loss
+        
+        combined_loss = weighted_mse_loss + weighted_dice_loss + weighted_vb_loss
+
+        # Apply loss weight
+        combined_loss = combined_loss * extract(self.loss_weight, t, combined_loss.shape)
+        
+        loss_dict = {
+            'mse': mse_loss.mean().item(),
+            'dice': dice_loss.mean().item(),
+            'vb': vb_loss.mean().item(),
+            'combined': combined_loss.mean().item()
+        }
+        
+        return combined_loss.mean(), loss_dict
 
     def forward(self, batch):
         img, label = self.feed_data(batch)
         label = normalize_to_neg_one_to_one(label)
-        times = torch.randint(0, self.timesteps, (1,),
-                              device=self.device).long()
-        loss = self.p_losses(x_start=label, t=times, cond=img)
-        return loss
+        times = torch.randint(0, self.timesteps, (1,), device=self.device).long()
+        loss, loss_dict = self.p_losses(x_start=label, t=times, cond=img)
+        return loss, loss_dict
     
     def train_step(self, batch):
         self.optimizer.zero_grad()
@@ -354,14 +488,13 @@ class SegDiffModel(SupervisedModel):
         if label.ndim == 3:
             label = rearrange(label, 'c h w -> 1 c h w')
 
-        times = torch.randint(0, self.timesteps, (1,),
-                              device=self.device).long()
+        times = torch.randint(0, self.timesteps, (1,), device=self.device).long()
         label = normalize_to_neg_one_to_one(label)
 
-        loss = self.p_losses(x_start=label, t=times, cond=img)
+        loss, loss_dict = self.p_losses(x_start=label, t=times, cond=img)
         loss.backward()
         self.optimizer.step()
-        return loss.item()
+        return loss.item(), loss_dict
 
     def valid_step(self, batch, verbose=False):
         img, label = self.feed_data(batch)
@@ -373,6 +506,7 @@ class SegDiffModel(SupervisedModel):
         output = self.p_sample_loop(cond=img, verbose=verbose)
         
         output = (output > 0.5) # thresholding
+        output = output.float()
         return output, label
     
     def val_one_epoch(self, dataloader, current_epoch, total_epoch=0, verbose=True, base_folder='results/seg_diff'):
