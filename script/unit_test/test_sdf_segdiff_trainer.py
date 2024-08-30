@@ -47,7 +47,7 @@ print(ARCH_REGISTRY.keys())
 print('Available loss in the registry:')
 print(LOSS_REGISTRY.keys())
 
-model = SDFSegDiffModel(arch='SegDiffUnet', criterion='pred_x0', mode='train', mse_weight=1.0, vb_weight=0.001)
+model = SDFSegDiffModel(arch='SegDiffUnet', criterion='pred_noise', mode='train', mse_weight=1.0, vb_weight=0.001)
 model_folder_name = model.get_name()
 
 trainer = Trainer(

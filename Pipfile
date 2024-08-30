@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [[source]]
-url = "https://download.pytorch.org/whl/cu118"
+url = "https://download.pytorch.org/whl/cu121"
 verify_ssl = false
 name = "pytorch"
 
@@ -41,8 +41,8 @@ datasets = {extras = ["vision"], version = "*"}
 simpleitk = "*"
 ema-pytorch = "*"
 aim = "*"
-cucim-cu11 = "*"
-cupy-cuda11x = "*"
+cucim-cu12 = "*"
+cupy-cuda12x = "*"
 
 [dev-packages]
 
