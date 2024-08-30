@@ -192,8 +192,7 @@ class SegDiffModel(SupervisedModel):
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용
         # arch 모델은 eta_theta = D(E(F(x_t) + G(I), t), t) 이��. 여기에서 I 는 이미지, x_t는 t시점의 segmentation map
         # x_t 와 I 를 혼동하면 안됨
-
-        self.name = name if name else f"{arch}__{beta_schedule}__{criterion}__{timesteps}"
+        self.name = name if name else f"{self.__class__.__name__}__{arch}__{beta_schedule}__{criterion}__{timesteps}"
         self.optimizer = torch.optim.AdamW(self.arch.parameters(), lr=1e-3)
         self.timesteps = timesteps
         self.criterion = criterion
@@ -437,13 +436,6 @@ class SegDiffModel(SupervisedModel):
         mse_loss = F.mse_loss(model_output, target, reduction='none')
         mse_loss = reduce(mse_loss, 'b ... -> b', 'mean')
 
-        seg_out = unnormalize_to_zero_to_one(model_output)
-        seg_out.clamp_(0., 1.)
-
-        x_start_seg = unnormalize_to_zero_to_one(x_start)
-        dice_loss = self.dice_loss(seg_out, x_start_seg)
-        dice_loss = reduce(dice_loss, 'b ... -> b', 'mean')
-
         vb_loss = self._vb_terms_bpd(
             x_start=x_start,
             x_t=x,
@@ -451,7 +443,19 @@ class SegDiffModel(SupervisedModel):
             c=cond,
             clip_denoised=False,
         )
-        
+        # Dice loss
+        if self.criterion == 'pred_noise':
+            seg_out = self.predict_start_from_noise(x, t, model_output)
+        else:
+            seg_out = model_output
+       
+        seg_out = unnormalize_to_zero_to_one(seg_out)
+        seg_out.clamp_(0., 1.)
+
+        x_start_seg = unnormalize_to_zero_to_one(x_start)
+        dice_loss = self.dice_loss(seg_out, x_start_seg)
+        dice_loss = reduce(dice_loss, 'b ... -> b', 'mean')        
+                
         # Apply weights and combine losses
         weighted_mse_loss = self.mse_weight * mse_loss
         weighted_dice_loss = self.dice_weight * dice_loss
@@ -498,7 +502,9 @@ class SegDiffModel(SupervisedModel):
 
     def valid_step(self, batch, verbose=False):
         img, label = self.feed_data(batch)
+        label = normalize_to_neg_one_to_one(label)
         output = self.p_sample_loop(cond=img, verbose=verbose)
+
         return output, label
     
     def infer_step(self, batch, verbose=True):

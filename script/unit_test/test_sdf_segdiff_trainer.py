@@ -6,7 +6,7 @@ import src.models
 
 import os
 
-from src.models.segdiff_model import SegDiffModel
+from src.models.sdf_segdiff_model import SDFSegDiffModel
 from src.utils.registry import DATASET_REGISTRY, ARCH_REGISTRY, LOSS_REGISTRY
 from torch.utils.data import DataLoader
 from src.utils.trainer import Trainer
@@ -47,17 +47,16 @@ print(ARCH_REGISTRY.keys())
 print('Available loss in the registry:')
 print(LOSS_REGISTRY.keys())
 
-model = SegDiffModel(arch='SegDiffUnet', criterion='pred_noise', mode='train')
+model = SDFSegDiffModel(arch='SegDiffUnet', criterion='pred_x0', mode='train', mse_weight=1.0, vb_weight=0.001)
 model_folder_name = model.get_name()
 
 trainer = Trainer(
     model=model,
     train_dataloader=train_dataloader,
     valid_dataloader=valid_dataloader,
-    train_num_steps=50000,
+    train_num_steps=20000,
     valid_every=500,
     save_every=1000,
-    resume_from=os.path.join('results',model_folder_name)
 )
 trainer.train()
 

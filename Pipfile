@@ -41,6 +41,8 @@ datasets = {extras = ["vision"], version = "*"}
 simpleitk = "*"
 ema-pytorch = "*"
 aim = "*"
+cucim-cu11 = "*"
+cupy-cuda11x = "*"
 
 [dev-packages]
 

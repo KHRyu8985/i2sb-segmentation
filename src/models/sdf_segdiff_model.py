@@ -2,69 +2,82 @@ import autorootcwd
 from .segdiff_model import SegDiffModel
 import torch
 import torch.nn.functional as F
-import cupy as cp
-import cupyx.scipy.ndimage as ndi
-
-def torch_to_cupy(x):
-    return cp.asarray(x.detach().cpu().numpy())
-
-def cupy_to_torch(x):
-    return torch.from_numpy(cp.asnumpy(x)).cuda()
+from src.distance.distance import compute_sdf 
+from .segdiff_model import *
 
 class SDFSegDiffModel(SegDiffModel):
+
+    @torch.no_grad()
+    def feed_data(self, batch):
+        img, label = batch['image'], batch['label']
+        label = label.to(self.device)
+        sdf_label = compute_sdf(label, delta=3.0) # signed distance transform
+        sdf_label = sdf_label.float()
+
+        img = img.to(self.device)
+
+        return img, label, sdf_label
     
-    def __init__(self, arch='SegDiffUnet', criterion='pred_x0',
-                 mode='train', beta_schedule='sigmoid', min_snr_loss_weight=True, min_snr_gamma=5, timesteps=100, name=None):
+    def p_losses(self, x_start, t, cond, noise=None):
+        b, c, h, w = x_start.shape
+        noise = default(noise, lambda: torch.randn_like(x_start))
 
-        super(SDFSegDiffModel, self).__init__(arch=arch, criterion=criterion, mode=mode, beta_schedule=beta_schedule,
-                                              min_snr_loss_weight=min_snr_loss_weight, min_snr_gamma=min_snr_gamma, 
-                                              timesteps=timesteps, name=name)
+        x = self.q_sample(x_start=x_start, t=t, noise=noise)
 
-        self.name = name if name else f"SDFSEGDIFF__{arch}__{beta_schedule}__{criterion}__{timesteps}"
-        
+        model_output = self.arch(x, cond, t)
 
-    def _transform_sdf(self, x, delta=5.0):  # delta is the truncation threshold
-        if isinstance(x, torch.Tensor):
-            x = torch_to_cupy(x)
+        if self.criterion == 'pred_noise':
+            target = noise
+        elif self.criterion == 'pred_x0':
+            target = x_start
         else:
-            x = cp.asarray(x)
+            raise ValueError(f'unknown criterion {self.criterion}')
         
-        # Compute distance transforms
-        dist_outside = ndi.distance_transform_edt(1 - x)
-        dist_inside = ndi.distance_transform_edt(x)
+        # Calculate individual losses
+        mse_loss = F.mse_loss(model_output, target, reduction='none')
+        mse_loss = reduce(mse_loss, 'b ... -> b', 'mean')
+
+        vb_loss = self._vb_terms_bpd(
+            x_start=x_start,
+            x_t=x,
+            t=t,
+            c=cond,
+            clip_denoised=False,
+        )
+                        
+        # Apply weights and combine losses
+        weighted_mse_loss = self.mse_weight * mse_loss
+        weighted_vb_loss = self.vb_weight * vb_loss
         
-        # Apply truncation
-        sdf = cp.where(x == 1, -cp.minimum(dist_inside, delta),
-                       cp.where(x == 0, cp.minimum(dist_outside, delta), 0))
+        combined_loss = weighted_mse_loss + weighted_vb_loss
+
+        # Apply loss weight
+        combined_loss = combined_loss * extract(self.loss_weight, t, combined_loss.shape)
         
-        # Normalize
-        max_dist = cp.maximum(cp.max(cp.abs(sdf)), delta)
-        sdf_normalized = sdf / max_dist
+        loss_dict = {
+            'mse': mse_loss.mean().item(),
+            'vb': vb_loss.mean().item(),
+            'combined': combined_loss.mean().item()
+        }
         
-        return cupy_to_torch(sdf_normalized) if isinstance(x, torch.Tensor) else sdf_normalized
-    
-    def _sdf_to_binary(self, sdf):
-        if isinstance(sdf, torch.Tensor):
-            sdf = torch_to_cupy(sdf)
-        else:
-            sdf = cp.asarray(sdf)
-        
-        binary_mask = (sdf <= 0).astype(cp.float32)
-        
-        return cupy_to_torch(binary_mask) if isinstance(sdf, torch.Tensor) else binary_mask
+        return combined_loss.mean(), loss_dict
 
     def forward(self, batch):
-        img, label = self.feed_data(batch)
-        label = self._transform_sdf(label)   
-        times = torch.randint(0, self.timesteps, (1,),
-                              device=self.device).long()
-        loss = self.p_losses(x_start=label, t=times, cond=img)
-        return loss
-    
+        img, label, sdf_label = self.feed_data(batch)
+        times = torch.randint(0, self.timesteps, (1,), device=self.device).long()
+        loss, loss_dict = self.p_losses(x_start=sdf_label, t=times, cond=img)        
+        return loss, loss_dict
+
     def valid_step(self, batch, verbose=False):
-        img, label = self.feed_data(batch)
+        img, label, sdf_label = self.feed_data(batch)
         output = self.p_sample_loop(cond=img, verbose=verbose)
-        output = self._sdf_to_binary(output)
-        return output, label
+        return output, sdf_label
+    
+    def infer_step(self, batch, verbose=True):
+        img, label, sdf_label = self.feed_data(batch)
+        output = self.p_sample_loop(cond=img, verbose=verbose)
         
+        output = (output >= 0) # thresholding
+        output = output.float()
+        return output, label      
     

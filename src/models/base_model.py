@@ -27,7 +27,7 @@ class BaseModel(nn.Module):
             self.criterion = None
         self.mode = mode # train, infer
         self.first_verbose = True  # Add this flag to track the first verbose plotting
-        self.name = name if name else f"{arch}__{criterion}"
+        self.name = name if name else f"{self.__class__.__name__}__{arch}__{criterion}"
 
     @property
     def device(self):
