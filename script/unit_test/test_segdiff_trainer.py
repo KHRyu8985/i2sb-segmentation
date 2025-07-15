@@ -10,6 +10,8 @@ from src.models.segdiff_model import SegDiffModel
 from src.utils.registry import DATASET_REGISTRY, ARCH_REGISTRY, LOSS_REGISTRY
 from torch.utils.data import DataLoader
 from src.utils.trainer import Trainer
+from torch.utils.data import Subset
+
 # Test the dataset
 #path_OCTA500_6M = "data/OCTA500_6M"
 #path_OCTA500_3M = "data/OCTA500_3M"
@@ -32,6 +34,10 @@ for split, dataset in datasets_collapsed.items():
 
 train_dataset = datasets_collapsed['train']
 valid_dataset = datasets_collapsed['val']
+
+valid_indices = list(range(20))
+valid_dataset = Subset(valid_dataset, valid_indices) # 20개만으로 validation dataset 줄임 (시간을 위해)
+
 test_dataset = datasets_collapsed['test']
 
 print('Length of datasets:')

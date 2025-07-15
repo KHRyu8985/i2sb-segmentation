@@ -186,7 +186,7 @@ class SegDiffModel(SupervisedModel):
 
     def __init__(self, arch='SegDiffUnet', criterion='pred_x0',
                  mode='train', beta_schedule='sigmoid', min_snr_loss_weight=True, min_snr_gamma=5, timesteps=100, name=None,
-                 mse_weight=100.0, dice_weight=10, vb_weight=0.1):
+                 mse_weight=10.0, dice_weight=1, vb_weight=0.01):
 
         super(SegDiffModel, self).__init__(arch=arch, criterion=criterion, mode=mode, name=name)
         # 위에서 criterion은 사용 안함, 논문대로 MSE loss 사용

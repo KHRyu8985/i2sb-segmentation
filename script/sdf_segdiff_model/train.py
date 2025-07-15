@@ -6,7 +6,7 @@ import src.models
 
 import click
 
-from src.models.segdiff_model import SegDiffModel
+from src.models.sdf_segdiff_model import SDFSegDiffModel
 from src.utils.registry import DATASET_REGISTRY, ARCH_REGISTRY, LOSS_REGISTRY
 from torch.utils.data import DataLoader
 from src.utils.trainer import Trainer
@@ -54,7 +54,7 @@ def main(dset, network, loss, train_batch_size, valid_batch_size, train_num_step
     train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, num_workers=4, shuffle=True)
     valid_dataloader = DataLoader(valid_dataset, batch_size=valid_batch_size, num_workers=4, shuffle=False)
 
-    model = SegDiffModel(arch=network, criterion=loss, mode='train')
+    model = SDFSegDiffModel(arch=network, criterion=loss, mode='train')
     model_folder_name = model.get_name()
     #dataset_model_folder_name = model_folder_name + '__' + dset
     

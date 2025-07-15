@@ -1,66 +1,56 @@
 # Implementation from the paper: SegDiff: Unsupervised Video Object Segmentation with Differentiable Object Representations
-# implement G, F, E_dot_D, LUT which is mentioned in the paper (SegDiff, https://arxiv.org/pdf/2112.00390)
-# this outputs x_tminus_1 conditioned on x_t (previous result), I (image), t(time step)
-# x_tminus_1 = E_dot_D(F(x_t) + G(I), LUT(t))
-# G: RRDBs (Residual Dense Blocks) for image I : Multi-level image features without batchnorm
-# F : 2D-convolutional layer with single-channel input and output oc C channels
-# E_dot_D : Encoder and Decoder with skip connections (e_theta) : Each level residual blocks, attention layer.
-# Bottle-neck layer : two residual blocks with an attention layer in between
+# Reference: https://arxiv.org/pdf/2112.00390
 
-
+# Imports
 import autorootcwd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.archs.rrdb import RRDB, make_layer
-from einops import rearrange, reduce
+from einops import rearrange
 from functools import partial
 import math
+from src.archs.rrdb import RRDB, make_layer
 from src.utils.registry import ARCH_REGISTRY
 
+# Utility functions
+def exists(x):
+    return x is not None
 
+def zero_module(module):
+    """Zero out the parameters of a module and return it."""
+    for p in module.parameters():
+        p.detach().zero_()
+    return module
+
+# G_model: Multi-level image features using RRDBs
 class G_model(nn.Module):
     def __init__(self, in_channels=1, out_channels=128, nf=64, nb=1, gc=32):
-        # in_channels: number of input channels
-        # out_channels: number of output channels
-        # nf: number of filters
-        # nb: number of RRDB blocks
-        # gc: group norm
-
         super(G_model, self).__init__()
         RRDB_block_f = partial(RRDB, nf=nf, gc=gc)
-
         self.conv_first = nn.Conv2d(in_channels, nf, 3, 1, 1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.conv_last = nn.Conv2d(nf, out_channels, 3, 1, 1, bias=True)
-
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
     def forward(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
-        fea = fea + trunk  # residual connection around RRDB blocks
+        fea = fea + trunk  # Residual connection
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
-
-# Define F
+# F_model: 2D convolutional layer
 class F_model(nn.Module):
-    """ F is a 2D-convolutional layer with single-channel input and output oc C channels """
-
     def __init__(self, in_channels=1, out_channels=128):
         super(F_model, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels,
-                              kernel_size=3, padding=1)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
         return self.conv(x)
 
-# Define LUT layer
-
-
+# LUT: Learnable embedding for timesteps
 def get_timestep_embedding(timesteps: torch.Tensor, embedding_dim: int, max_period: int = 10000) -> torch.Tensor:
     """
     Create sinusoidal timestep embeddings following the implementation in Ho et al. "Denoising Diffusion Probabilistic
@@ -88,29 +78,19 @@ def get_timestep_embedding(timesteps: torch.Tensor, embedding_dim: int, max_peri
 
     return embedding
 
-
 class LUT(nn.Module):
     def __init__(self, embedding_dim: int = 64, out_channels: int = 64):
         super(LUT, self).__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(out_channels, embedding_dim), nn.SiLU(
-            ), nn.Linear(embedding_dim, embedding_dim)
+            nn.Linear(out_channels, embedding_dim), nn.SiLU(), nn.Linear(embedding_dim, embedding_dim)
         )
         self.embedding_dim = embedding_dim
 
     def forward(self, t: torch.Tensor):
         t = get_timestep_embedding(t, embedding_dim=self.embedding_dim)
-        t = self.mlp(t)  # MLP layer
-        return t
+        return self.mlp(t)
 
-# Define E_dot_D
-# First define residual block
-
-
-def exists(x):
-    return x is not None
-
-
+# ResidualBlock: Building block for E_dot_D
 class Block(nn.Module):
     def __init__(self, dim, dim_out, groups=8):
         super().__init__()
@@ -128,7 +108,6 @@ class Block(nn.Module):
 
         x = self.act(x)
         return x
-
 
 class ResidualBlock(nn.Module):
     """ ResidualBlock inputs x and t and outputs x_hat
@@ -159,6 +138,28 @@ class ResidualBlock(nn.Module):
 
         return h + self.res_conv(x)
 
+# Downsample and Upsample layers
+class Downsample(nn.Module):
+    """
+    A downsampling layer with an optional convolution.
+    :param channels: channels in the inputs and outputs.
+    :param use_conv: a bool determining if a convolution is applied.
+    """
+
+    def __init__(self, channels, stride=2, use_conv=True):
+        super().__init__()
+        self.channels = channels
+        self.use_conv = use_conv
+
+        if use_conv:
+            self.op = nn.Conv2d(channels, channels,
+                                3, stride, padding=1)
+        else:
+            self.op = nn.AvgPool2d(stride)
+
+    def forward(self, x):
+        assert x.shape[1] == self.channels
+        return self.op(x)
 
 class Upsample(nn.Module):
     """
@@ -182,39 +183,7 @@ class Upsample(nn.Module):
             x = self.conv(x)
         return x
 
-
-class Downsample(nn.Module):
-    """
-    A downsampling layer with an optional convolution.
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    """
-
-    def __init__(self, channels, stride=2, use_conv=True):
-        super().__init__()
-        self.channels = channels
-        self.use_conv = use_conv
-
-        if use_conv:
-            self.op = nn.Conv2d(channels, channels,
-                                3, stride, padding=1)
-        else:
-            self.op = nn.AvgPool2d(stride)
-
-    def forward(self, x):
-        assert x.shape[1] == self.channels
-        return self.op(x)
-
-
-def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().zero_()
-    return module
-
-
+# AttentionBlock: Spatial attention mechanism
 class AttentionBlock(nn.Module):
     """
     An attention block that allows spatial positions to attend to each other.
@@ -243,7 +212,6 @@ class AttentionBlock(nn.Module):
         h = self.proj_out(h)
         return (x + h).reshape(b, c, *spatial)
 
-
 class QKVAttention(nn.Module):
     """
     A module which performs QKV attention.
@@ -265,7 +233,7 @@ class QKVAttention(nn.Module):
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
         return torch.einsum("bts,bcs->bct", weight, v)
 
-
+# E_dot_D: Encoder-Decoder with skip connections
 class E_dot_D(nn.Module):
     """ input: G(I) + F(x_t), LUT(t)
     size: G+F = (1,64,128,128)
@@ -343,6 +311,7 @@ class E_dot_D(nn.Module):
         x = self.conv_out(x)
         return x
 
+# SegDiffUnet: Main model combining G, F, LUT, and E_dot_D
 @ARCH_REGISTRY.register()
 class SegDiffUnet(nn.Module):
     def __init__(self, in_channels, out_channels, nf=64):
@@ -351,13 +320,14 @@ class SegDiffUnet(nn.Module):
         self.F = F_model(in_channels=in_channels, out_channels=nf)
         self.LUT = LUT(embedding_dim=nf, out_channels=nf)
         self.E_dot_D = E_dot_D(in_channels=nf, out_channels=out_channels)
-    def forward(self, x_t, I, t): # x, c, t
+
+    def forward(self, x_t, I, t):
         G_output = self.G(I)
         F_output = self.F(x_t)
         LUT_output = self.LUT(t)
-        E_dot_D_output = self.E_dot_D(G_output + F_output, LUT_output)
-        return E_dot_D_output
+        return self.E_dot_D(G_output + F_output, LUT_output)
 
+# Main function for testing
 if __name__ == "__main__":
     # Define input dimensions
     batch_size = 1
@@ -400,4 +370,3 @@ if __name__ == "__main__":
     SegDiffUnet_model = SegDiffUnet(in_channels=img_channels, out_channels=img_channels)
     SegDiffUnet_output = SegDiffUnet_model(x_t, I, t)
     print("SegDiffUnet output shape:", SegDiffUnet_output.shape)
-
